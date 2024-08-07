@@ -26,6 +26,9 @@
 
 namespace robotic_arm
 {
+
+  bool use_sim;
+
 hardware_interface::CallbackReturn RobotSystem::on_init(const hardware_interface::HardwareInfo & info)
 {
   if (hardware_interface::SystemInterface::on_init(info) != CallbackReturn::SUCCESS)
@@ -41,6 +44,11 @@ hardware_interface::CallbackReturn RobotSystem::on_init(const hardware_interface
   cfg_.device = info_.hardware_parameters["device"];
   cfg_.baud_rate = std::stoi(info_.hardware_parameters["baud_rate"]);
   cfg_.timeout_ms = std::stoi(info_.hardware_parameters["timeout_ms"]);
+
+  const char* use_sim_env = std::getenv("USE_SIM");
+  use_sim = use_sim_env != nullptr && std::string(use_sim_env) == "true";
+
+  RCLCPP_INFO(rclcpp::get_logger("RobotSystem"), "USE_SIM ******** %s *****", use_sim ? "true" : "false");
 
   for (const auto & joint : info_.joints)
   {
@@ -87,13 +95,20 @@ std::vector<hardware_interface::CommandInterface> RobotSystem::export_command_in
 hardware_interface::CallbackReturn RobotSystem::on_configure(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
-  RCLCPP_INFO(rclcpp::get_logger("RobotSystem"), "Configuring ...please wait...");
-  if (comms_.connected())
-  {
-    comms_.disconnect();
+  if (use_sim == true){ 
+
+    RCLCPP_INFO(rclcpp::get_logger("RobotSystem"), "Configuring ...please wait...");
+    if (comms_.connected())
+    {
+      comms_.disconnect();
+    }
+    comms_.connect(cfg_.device, cfg_.baud_rate, cfg_.timeout_ms);
+    RCLCPP_INFO(rclcpp::get_logger("RobotSystem"), "Successfully configured!");
+
   }
-  comms_.connect(cfg_.device, cfg_.baud_rate, cfg_.timeout_ms);
-  RCLCPP_INFO(rclcpp::get_logger("RobotSystem"), "Successfully configured!");
+  else{
+    RCLCPP_INFO(rclcpp::get_logger("RobotSystem"), "Robotic System started as Simulation.......!!");
+  }
 
   return hardware_interface::CallbackReturn::SUCCESS;
 }
@@ -101,12 +116,16 @@ hardware_interface::CallbackReturn RobotSystem::on_configure(
 hardware_interface::CallbackReturn RobotSystem::on_cleanup(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
-  RCLCPP_INFO(rclcpp::get_logger("RobotSystem"), "Cleaning up ...please wait...");
-  if (comms_.connected())
-  {
-    comms_.disconnect();
+  if (use_sim == true){ 
+      
+    RCLCPP_INFO(rclcpp::get_logger("RobotSystem"), "Cleaning up ...please wait...");
+    if (comms_.connected())
+    {
+      comms_.disconnect();
+    }
+    RCLCPP_INFO(rclcpp::get_logger("RobotSystem"), "Successfully cleaned up!");
+
   }
-  RCLCPP_INFO(rclcpp::get_logger("RobotSystem"), "Successfully cleaned up!");
 
   return hardware_interface::CallbackReturn::SUCCESS;
 }
@@ -116,9 +135,11 @@ hardware_interface::CallbackReturn RobotSystem::on_activate(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
   RCLCPP_INFO(rclcpp::get_logger("RobotSystem"), "Activating ...please wait...");
-  if (!comms_.connected())
-  {
-    return hardware_interface::CallbackReturn::ERROR;
+  if (use_sim == true){ 
+    if (!comms_.connected())
+    {
+      return hardware_interface::CallbackReturn::ERROR;
+    }
   }
   RCLCPP_INFO(rclcpp::get_logger("RobotSystem"), "Successfully activated!");
 
@@ -137,17 +158,21 @@ hardware_interface::CallbackReturn RobotSystem::on_deactivate(
 hardware_interface::return_type RobotSystem::read(const rclcpp::Time & /*time*/, const rclcpp::Duration & period)
 {
   // TODO(pac48) set sensor_states_ values from subscriber
-  if (!comms_.connected())
-  {
-    return hardware_interface::return_type::ERROR;
+  if (use_sim == true)
+  { 
+    if (!comms_.connected())
+    {
+      return hardware_interface::return_type::ERROR;
+    }
+
+    comms_.read_servo_values(joint_position_, joint_position_command_);
+  }   
+  else{
+    for (auto i = 0ul; i < joint_position_command_.size(); i++)
+    {
+      joint_position_[i] = joint_position_command_[i];
+    }
   }
-
-  comms_.read_servo_values(joint_position_, joint_position_command_);   
-
-  // for (auto i = 0ul; i < joint_position_command_.size(); i++)
-  // {
-  //   joint_position_[i] = joint_position_command_[i];
-  // }
 
   // RCLCPP_INFO(rclcpp::get_logger("RobotSystem"), "joint_position_command_: %f, joint_position_: %f",joint_position_[2]*180/3.14159265359, joint_position_command_[2]*180/3.14159265359);
 
@@ -156,11 +181,13 @@ hardware_interface::return_type RobotSystem::read(const rclcpp::Time & /*time*/,
 
 hardware_interface::return_type RobotSystem::write(const rclcpp::Time &, const rclcpp::Duration &)
 {
- if (!comms_.connected())
+  if(use_sim == true)
   {
-    return hardware_interface::return_type::ERROR;
+    if (!comms_.connected())
+      {
+        return hardware_interface::return_type::ERROR;
+      }
   }
-
   // comms_.set_motor_values(joint_position_command_); 
   // comms_.read_servo_values(joint_position_);   
 
